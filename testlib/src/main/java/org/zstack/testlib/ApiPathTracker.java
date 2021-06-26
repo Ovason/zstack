@@ -4,15 +4,11 @@ import org.apache.logging.log4j.ThreadContext;
 import org.zstack.core.Platform;
 import org.zstack.core.cloudbus.CloudBus;
 import org.zstack.header.Constants;
-import org.zstack.header.message.AbstractBeforeSendMessageInterceptor;
-import org.zstack.header.message.CarrierMessage;
-import org.zstack.header.message.Message;
-import org.zstack.header.message.MessageReply;
+import org.zstack.header.message.*;
 import org.zstack.header.rest.BeforeAsyncJsonPostInterceptor;
 import org.zstack.header.rest.RESTFacade;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -24,6 +20,8 @@ public class ApiPathTracker {
     private RESTFacade restf;
 
     final List<Path> paths = new ArrayList<>();
+    // 步骤开始的时间 --ovason
+    final Map<String, Long> msgStartTime = new HashMap<>();
 
     private enum Type {
         Message,
@@ -48,9 +46,20 @@ public class ApiPathTracker {
         bus.installBeforeSendMessageInterceptor(new AbstractBeforeSendMessageInterceptor() {
             @Override
             public void beforeSendMessage(Message msg) {
-                if (msg instanceof MessageReply || msg instanceof CarrierMessage) {
+                if (msg instanceof MessageReply) {
+                    // 计算步骤耗时 --ovason
+                    Long startTime = msgStartTime.get(msg.getId());
+                    Date endDate = new Date();
+                    long msgSpendTime = endDate.getTime() - startTime;
+                    // 用于计算api耗时的数据头
+                    Map<String, Object> apiCostHeader = new HashMap<>();
+                    apiCostHeader.put("apicost", msgSpendTime);
+                    msg.setHeaders(apiCostHeader);
                     return;
                 }
+
+                if (msg instanceof CarrierMessage)
+                    return;
 
                 String id = ThreadContext.get(Constants.THREAD_CONTEXT_API);
 
@@ -62,6 +71,9 @@ public class ApiPathTracker {
                 p.type = Type.Message;
                 p.path = msg.getClass().getName();
                 paths.add(p);
+
+                // 写入步骤开始的时间 --ovason
+                msgStartTime.put(msg.getId(), msg.getCreatedTime());
             }
         });
 
